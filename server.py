@@ -1,36 +1,33 @@
-#много клиентов и серверов как работают, в какой очередности и что делать вообще хз
-#два клиента без сервера чд
-import socket
+import asyncio
 
-listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-IP = "0.0.0.0"      # слушаем все интерфейсы
-PORT = 12333
-listener.bind((IP, PORT))
-listener.listen(0)
+async def handle_connection(reader, writer):
+    addr = writer.get_extra_info("peername")
+    print("Connected by", addr)
+    while True:
+        # Receive
+        try:
+            data = await reader.read(1024)
+        except ConnectionError:
+            print(f"Client suddenly closed while receiving from {addr}")
+            break
+        if not data:
+            break
+        print(f'получено от {addr}: {data.decode('utf-8')}')
+        data = data.upper()
+        try:
+            writer.write(data)
+        except ConnectionError:
+            print(f"Client suddenly closed, cannot send")
+            break
+    writer.close()
+    print("Disconnected by", addr)
 
-print("Сервер запущен, ждём клиента...")
-connection, address = listener.accept()
-print(f"Подключен клиент: {address}")
+async def main(host, port):
+    server = await asyncio.start_server(handle_connection, host, port)
+    async with server:
+        await server.serve_forever()
 
-connection.send("Привет, подключайся!".encode('utf8'))
+HOST, PORT = "127.0.0.1", 50007
 
-# читаем, пока клиент не закроет соединение
-while True:
-    data = connection.recv(1024)
-
-    if not data:
-        print("клиент ничего не отправил")
-        break
-
-    message = data.decode('utf-8').strip()
-    print(f'сообщение от клиента: {message}')
-
-    if message == "Привет, сервер":
-        print("Привет, клиент!")
-    else:
-        print('Я хз кто ты')
-    #print("сообщение сервера", data.decode("utf8"))
-
-connection.close()
-listener.close()
+if __name__ == "__main__":
+    asyncio.run(main(HOST, PORT))
