@@ -1,33 +1,37 @@
-import asyncio
+import asyncio                                                                      #библиотека для асинхроного программирования, нужна для обслуживания 100500 миллиардов клиентов без зависания
 
-async def handle_connection(reader, writer):
-    addr = writer.get_extra_info("peername")
+async def handle_connection(reader, writer):                                        #объявляем корутину (асинхронная функция), запускается отдельно для каждого подключившегося клиента, reader и writer сами передаются библиотекой. здесь у нас создается один сокет, а reader и writer это просто красивые обертки для удобства, по факту мы работаем с одним объектом - сокетом
+    addr = writer.get_extra_info("peername")                                        #узнаем сетевой адрес подключившегося клиента и записываем в котреж вида (ip, порт)
     print("Connected by", addr)
     while True:
-        # Receive
         try:
-            data = await reader.read(1024)
-        except ConnectionError:
+            data = await reader.read(1024)                                          #пока клиент не передает никакие сообщения, его корутина ставится на паузу (await), и сервер спокойно переключается на других клиентов, которые готовы с нами болтать
+        except ConnectionError:                                                     #если клиент умер
             print(f"Client suddenly closed while receiving from {addr}")
             break
-        if not data:
+        if not data:                                                                #это разрыв соединения со стороны клиента, если он вызвал connection.close(), закрыл окно или просто получил строку b"". если убрать эту проверку, то мы будем получать дофига пустых строк и сервер уйдет в холостой бесконечный цикл и будет нам выводить дофига и больше пустых строк
             break
-        print(f'получено от {addr}: {data.decode('utf-8')}')
+        print(f"получено от {addr}: {data.decode('utf-8')}")
+        #надо поменять логику ответного соообщения клиенту и сделать проверку на входящий текст
         data = data.upper()
         try:
-            writer.write(data)
-        except ConnectionError:
+            writer.write(data)                                                      #мы складываем измененное полученное сообщение клиента в буфер отправки, но не отправляем 
+            await writer.drain()                                                    #для больших сообщений или файлов будет нагляднее, но и для нашего случая это надо, чтоб у нас сначала отправлялось сообщение, а уже потом переходили к чтению нового. и плюсом с этой штукой у нас не будут все клиенты тормозить из-за одного идиота с отвратительным инетом, а только он будет тупить, а все остальные нормально работать. и здесь же, если вдруг что, падаем в ошибку отключения клиента
+        except ConnectionError:                                                     #клиент умер, в момент отправки сообщения
             print(f"Client suddenly closed, cannot send")
             break
-    writer.close()
+    writer.close()                                                                  #делаем видимость закрытия сокет
+    await writer.wait_closed()                                                      #ждем, чтоб точно у нас этот сокет закрылся и освободились ресурсы, а только после всего этого идем дальше работать
     print("Disconnected by", addr)
 
-async def main(host, port):
-    server = await asyncio.start_server(handle_connection, host, port)
-    async with server:
-        await server.serve_forever()
+async def main(host, port):                                                         #настройка и работа всего сервера в целом
+    #здесь появляется служебный сокет Listening Socket, он принимает новые подключения на порту
+    server = await asyncio.start_server(handle_connection, host, port)              #создаем TCP-сервер и привязываем к нему функцию handle_connection, теперь у нас для каждого клиента автоматически создается новая задача handle_connection
+    async with server:                                                              #корректно освобаждаем порт и закрывааем все служебные сокеты
+        await server.serve_forever()                                                #переводим сервер в фоновый режим ожидания, чтоб он работл пока мы его не убьем
+    #здесь Listening Socket закрывается
 
 HOST, PORT = "127.0.0.1", 50007
 
-if __name__ == "__main__":
-    asyncio.run(main(HOST, PORT))
+if __name__ == "__main__":                                                          #программа запускается конкретно с этого файла
+    asyncio.run(main(HOST, PORT))                                                   #создает главный цикл событий Event Loop, и не завершает программу, пока мы сами руками ее не остановим. Event Loop эта штука реализует многопользовательское соединение. вместо того, чтобы ждать пока мы поработаем с одним полностью, она запускает сразу несколько процессов
