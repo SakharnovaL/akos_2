@@ -12,7 +12,10 @@ try:
         if not message:                                                         #если реально ничего не ввели, клиент отключается от сервера
             print('ничего не захотели вводить')
             break
-        message_bytes = message.encode('utf-8')                                 #кодируем сообщение в байты и отправляем
+        if message.lower().strip() == 'ping':
+            message_bytes = message.encode('utf-8')                             #кодируем сообщение в байты и отправляем
+        else:
+            message_bytes = 'stupid man'.encode('utf-8')
         connection.sendall(message_bytes)                                       #sendall() отправит точно все сообщение
         data = connection.recv(1024)                                            #усыпляем клиента в ожидании ответа от сервера
         if not data:                                                            #сервер не прислал ответ и отключил клиента от себя
