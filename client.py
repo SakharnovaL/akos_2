@@ -47,26 +47,27 @@ def run_ping_mode():
     connection.connect((host, port))
     try: 
         connection.sendall('mode:ping'.encode('utf-8'))                                         #отправляем сообщение с выбранным режимом
+        connection.settimeout(2.0)                                                              #ставим таймер, чтоб программа не ложилась, когда пользователь ввел не ping
         if connection.recv(1024) != b'ready':                                                   #если с сервера не пришло сообщение ready, то обрубаем все
             raise RuntimeError('сервер не подтвердил режим работы')
         while True:
-            outgoing_message = input("Введите SMS: ")
+            outgoing_message = input("Введите SMS: ")                                           #состояние 1 с диаграммы
             if not outgoing_message:                                                            #если реально ничего не ввели, клиент отключается от сервера
-                print('ничего не захотели вводить')
+                print('ничего не захотели вводить. завершение работы данного режима')
                 break
-            if outgoing_message.lower().strip() == 'ping':                                      
-                message_bytes = outgoing_message.encode('utf-8')                                #кодируем сообщение в байты и отправляем
-            else:                                                                               #если ввели не ping, отправляем сообщение, что вы глупенький, и выпадаем в ошибку
-                message_bytes = 'stupid man'.encode('utf-8')
-            connection.sendall(message_bytes)                                                   #sendall() отправит точно все сообщение
-            income_message = connection.recv(1024)                                              #усыпляем клиента в ожидании ответа от сервера
-            if not income_message:                                                              #сервер не прислал ответ и отключил клиента от себя
-                print('с сервера ничего не пришло, чао какао')
-                break
-            if income_message.decode('utf8').lower().strip() == 'pong':      
-                print(f'с сервера получено сообщение: {income_message.decode('utf8')}')
-            else:                                                                               #если вернулось не pong, тк мы отправили не ping, то ошибка
-                raise ValueError(f'неожиданный ответ от сервера, "{income_message.decode('utf8')}", ожидалось pong')
+            connection.sendall(outgoing_message.encode('utf-8'))                                #sendall() отправит точно все сообщение
+            try:                                                                                #состояние 2 с диаграммы
+                income_message = connection.recv(1024)                                          #усыпляем клиента в ожидании ответа от сервера
+                if not income_message:                                                          #сервер не прислал ответ и отключил клиента от себя
+                    print('с сервера ничего не пришло')
+                    break
+                replay = income_message.decode('utf8').lower().strip()
+                if replay == 'pong':                                                            #состояние 3 с диаграммы  
+                    print(f'с сервера получено сообщение: {income_message.decode('utf8')}')
+                else:                                                                           #cостояние 4 с диаграммы. если вернулось не pong, тк мы отправили не ping, то ошибка
+                    print(f'ошибка: неожиданный ответ "{replay}", ожидалось pong')
+            except socket.timeout:
+                print('ошибка: сервер не ответил. попробуйе снова')
     except Exception as e:
         print(f"Ошибка при отправке: {e}")
     finally:
