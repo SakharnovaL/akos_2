@@ -1,4 +1,5 @@
 import socket
+import threading                                                                                #для создания параллельных потоков
 
 dis_port = range(55555, 55565)                                                                  #для одновременной работы сразу нескольких серверов
 
@@ -29,6 +30,7 @@ def find_server(timeout=3.0):
         elif len(servers) == 1:
             return servers[0]
         else:
+            servers.sort()
             print('найдено несколько серверов:')
             for ind, (ip, port) in enumerate(servers, start=1):
                 print(f'{ind}. {ip}:{port}')
@@ -37,11 +39,15 @@ def find_server(timeout=3.0):
     finally:
         upd_sok.close()
 
-def run_client():
+#режим работы 1: общение клиента с сервром
+def run_ping_mode():
     host, port = find_server()
     connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     connection.connect((host, port))
     try: 
+        connection.sendall('mode:ping'.encode('utf-8'))                                         #отправляем сообщение с выбранным режимом
+        if connection.recv(1024) != b'ready':                                                   #если с сервера не пришло сообщение ready, то обрубаем все
+            raise RuntimeError('сервер не подтвердил режим работы')
         while True:
             outgoing_message = input("Введите SMS: ")
             if not outgoing_message:                                                            #если реально ничего не ввели, клиент отключается от сервера
@@ -65,8 +71,54 @@ def run_client():
     finally:
         connection.close()                                                                      #закрываем соединение
 
+#режим работы 2: общение клиентов друг с другом через сервер
+def receive_from_server(connection):                                                            #печатает входящии сообщения с сервера, не мешая нам вводить свои
+    while True:
+        try:
+            income_mes = connection.recv(1024)
+            if not income_mes:                                                                  #проверяет не прислаи нам пустую строчку, что является сигналом закрытия сервера
+                print('сервер закрыл соединение')
+                break
+            print(f'\r{income_mes.decode("utf-8").strip()}\nвы: ', end='')                      #печатает пришедшее от собеседников сообщение. \r cдвигаем каретку в начало строки, тем самым затирая вы:, чтоб был красивый вывод
+        except OSError:
+            break
+
+def run_server_chat_mode():
+    host, port = find_server()
+    connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    connection.connect((host, port))
+    try:
+        connection.sendall('mode:chat'.encode('utf-8'))                                         #отправляем сообщение с выбранным режимом
+        if connection.recv(1024) != b'ready':                                                   #если с сервера не пришло сообщение ready, то обрубаем все
+            raise RuntimeError('сервер не подтвердил режим работы')
+        print(f'вы вошли в общий чат через сервер ({host}:{port}). пустая строка - выход из чата')
+        threading.Thread(target=receive_from_server, args=(connection,), daemon=True).start()   #этот монстр запускает функцию receive_from_server в фоновом потоке, чтоб мы могли как писать сообщения. та ки принимать сообщения с сервера. threading.Thread создает объект нового фонового потока, target показывает конкретно какую функцию надо выполнять, args передет аргументы в функцию, daemon деалет поток фоновым
+        while True:
+            outgoing_mes = input('вы: ')
+            if not outgoing_mes:                                                                #если оставим стороку пустой - выход
+                print('выход из чата')
+                break
+            connection.sendall(outgoing_mes.encode('utf-8'))
+    finally:
+        connection.close()
+
 if __name__ == "__main__":
     try:
-        run_client()
+        while True:
+            print('выберите режим работы')
+            print('0. завершить работу клиента')
+            print('1. общение клиента с сервером')
+            print('2. общение клиента с другими клиентами через сервер')
+            mode = input('ваш выбор: ').strip()
+            if mode == '0':
+                break
+            elif mode == '1':
+                run_ping_mode()
+            elif mode == '2':
+                run_server_chat_mode()
+            else:
+                print('режима под таким номером не существует. попробуйте еще раз')
+    except KeyboardInterrupt:
+        print('программа завершена')
     except Exception as err:
         print(f"Не удалось запустить клиент: {err}")
